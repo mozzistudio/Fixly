@@ -1,0 +1,593 @@
+// Fixly Database Schema
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// Organization & Users
+// ============================================
+
+model Organization {
+  id                 String              @id @default(uuid())
+  name               String
+  slug               String              @unique
+  logo               String?
+  address            String?
+  phone              String?
+  email              String?
+  website            String?
+  timezone           String              @default("UTC")
+  currency           String              @default("USD")
+  language           String              @default("en")
+  businessHours      Json?
+  settings           Json                @default("{\"ticketPrefix\":\"FX\",\"defaultPriority\":\"medium\",\"autoAssign\":false,\"requireApprovalForRepairs\":true,\"sendStatusNotifications\":true,\"taxRate\":0,\"aiEnabled\":true}")
+  subscriptionPlan   String              @default("free")
+  subscriptionStatus String              @default("active")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  // Relations
+  users              User[]
+  customers          Customer[]
+  devices            Device[]
+  tickets            Ticket[]
+  invoices           Invoice[]
+  inventoryItems     InventoryItem[]
+  aiInteractions     AIInteraction[]
+  whatsappConfig     WhatsAppConfig?
+  notifications      Notification[]
+  appointments       Appointment[]
+
+  @@index([slug])
+}
+
+model User {
+  id             String    @id @default(uuid())
+  organizationId String
+  email          String
+  passwordHash   String
+  firstName      String
+  lastName       String
+  avatar         String?
+  role           UserRole  @default(TECHNICIAN)
+  phone          String?
+  isActive       Boolean   @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  // Relations
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedTickets    Ticket[]            @relation("AssignedTickets")
+  ticketStatusLogs   TicketStatusLog[]
+  ticketNotes        TicketNote[]
+  sentMessages       TicketMessage[]
+  receivedPayments   Payment[]
+  inventoryMovements InventoryMovement[]
+  notifications      Notification[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([email])
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  TECHNICIAN
+  RECEPTIONIST
+}
+
+// ============================================
+// Customers & Devices
+// ============================================
+
+model Customer {
+  id             String   @id @default(uuid())
+  organizationId String
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String
+  whatsappPhone  String?
+  address        String?
+  city           String?
+  state          String?
+  postalCode     String?
+  country        String?
+  notes          String?
+  tags           String[] @default([])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  devices      Device[]
+  tickets      Ticket[]
+  messages     TicketMessage[]
+  invoices     Invoice[]
+  appointments Appointment[]
+
+  @@index([organizationId])
+  @@index([phone])
+  @@index([whatsappPhone])
+  @@index([organizationId, phone])
+}
+
+model Device {
+  id             String      @id @default(uuid())
+  organizationId String
+  customerId     String
+  type           DeviceType
+  brand          String
+  model          String
+  color          String?
+  serialNumber   String?
+  imei           String?
+  conditionNotes String?
+  purchaseDate   DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tickets      Ticket[]
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([serialNumber])
+  @@index([imei])
+}
+
+enum DeviceType {
+  SMARTPHONE
+  TABLET
+  LAPTOP
+  DESKTOP
+  GAME_CONSOLE
+  SMARTWATCH
+  OTHER
+}
+
+// ============================================
+// Tickets
+// ============================================
+
+model Ticket {
+  id                  String         @id @default(uuid())
+  organizationId      String
+  code                String         @unique
+  customerId          String
+  deviceId            String
+  assignedToId        String?
+  priority            TicketPriority @default(MEDIUM)
+  status              TicketStatus   @default(NEW)
+  channel             TicketChannel  @default(WALK_IN)
+  issueDescription    String
+  aiDiagnosis         String?
+  estimatedCost       Decimal?       @db.Decimal(10, 2)
+  approvedCost        Decimal?       @db.Decimal(10, 2)
+  actualCost          Decimal?       @db.Decimal(10, 2)
+  estimatedCompletion DateTime?
+  completedAt         DateTime?
+  tags                String[]       @default([])
+  attachments         Json           @default("[]")
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  // Relations
+  organization       Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer           Customer              @relation(fields: [customerId], references: [id])
+  device             Device                @relation(fields: [deviceId], references: [id])
+  assignedTo         User?                 @relation("AssignedTickets", fields: [assignedToId], references: [id])
+  statusLogs         TicketStatusLog[]
+  notes              TicketNote[]
+  messages           TicketMessage[]
+  invoice            Invoice?
+  inventoryMovements InventoryMovement[]
+  appointments       Appointment[]
+
+  @@index([organizationId])
+  @@index([code])
+  @@index([customerId])
+  @@index([deviceId])
+  @@index([assignedToId])
+  @@index([status])
+  @@index([priority])
+  @@index([organizationId, status])
+  @@index([organizationId, assignedToId])
+}
+
+enum TicketStatus {
+  NEW
+  CHECKED_IN
+  DIAGNOSING
+  WAITING_APPROVAL
+  WAITING_PARTS
+  IN_REPAIR
+  QUALITY_CHECK
+  REPAIRED
+  READY_PICKUP
+  PICKED_UP
+  CLOSED
+  CANCELLED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketChannel {
+  WALK_IN
+  WHATSAPP
+  PHONE
+  EMAIL
+  WEBSITE
+}
+
+model TicketStatusLog {
+  id          String        @id @default(uuid())
+  ticketId    String
+  fromStatus  TicketStatus?
+  toStatus    TicketStatus
+  changedById String
+  notes       String?
+  createdAt   DateTime      @default(now())
+
+  // Relations
+  ticket    Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  changedBy User   @relation(fields: [changedById], references: [id])
+
+  @@index([ticketId])
+}
+
+model TicketNote {
+  id            String   @id @default(uuid())
+  ticketId      String
+  userId        String
+  content       String
+  isAiGenerated Boolean  @default(false)
+  attachments   Json     @default("[]")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([ticketId])
+}
+
+model TicketMessage {
+  id                String          @id @default(uuid())
+  ticketId          String
+  customerId        String
+  direction         MessageDirection
+  status            MessageStatus   @default(PENDING)
+  body              String
+  mediaUrl          String?
+  mediaType         String?
+  whatsappMessageId String?
+  aiDraftReply      String?
+  sentById          String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relations
+  ticket   Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  customer Customer  @relation(fields: [customerId], references: [id])
+  sentBy   User?     @relation(fields: [sentById], references: [id])
+
+  @@index([ticketId])
+  @@index([customerId])
+  @@index([whatsappMessageId])
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// ============================================
+// Invoicing & Payments
+// ============================================
+
+model Invoice {
+  id             String        @id @default(uuid())
+  organizationId String
+  ticketId       String        @unique
+  customerId     String
+  invoiceNumber  String
+  subtotal       Decimal       @db.Decimal(10, 2)
+  taxRate        Decimal       @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal       @db.Decimal(10, 2)
+  discount       Decimal       @default(0) @db.Decimal(10, 2)
+  discountType   DiscountType  @default(FIXED)
+  total          Decimal       @db.Decimal(10, 2)
+  paidAmount     Decimal       @default(0) @db.Decimal(10, 2)
+  paymentStatus  PaymentStatus @default(UNPAID)
+  dueDate        DateTime?
+  notes          String?
+  issuedAt       DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  // Relations
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ticket       Ticket              @relation(fields: [ticketId], references: [id])
+  customer     Customer            @relation(fields: [customerId], references: [id])
+  lineItems    InvoiceLineItem[]
+  payments     Payment[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId])
+  @@index([ticketId])
+  @@index([customerId])
+  @@index([paymentStatus])
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+model InvoiceLineItem {
+  id              String       @id @default(uuid())
+  invoiceId       String
+  type            LineItemType
+  description     String
+  quantity        Int
+  unitPrice       Decimal      @db.Decimal(10, 2)
+  total           Decimal      @db.Decimal(10, 2)
+  inventoryItemId String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // Relations
+  invoice       Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([invoiceId])
+}
+
+enum LineItemType {
+  LABOR
+  PART
+  CUSTOM
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  invoiceId    String
+  amount       Decimal       @db.Decimal(10, 2)
+  method       PaymentMethod
+  reference    String?
+  notes        String?
+  receivedById String
+  createdAt    DateTime      @default(now())
+
+  // Relations
+  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  receivedBy User    @relation(fields: [receivedById], references: [id])
+
+  @@index([invoiceId])
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  OTHER
+}
+
+// ============================================
+// Inventory
+// ============================================
+
+model InventoryItem {
+  id             String   @id @default(uuid())
+  organizationId String
+  sku            String
+  name           String
+  description    String?
+  category       String?
+  brand          String?
+  cost           Decimal  @db.Decimal(10, 2)
+  price          Decimal  @db.Decimal(10, 2)
+  quantity       Int      @default(0)
+  reorderLevel   Int      @default(5)
+  location       String?
+  barcode        String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  movements       InventoryMovement[]
+  invoiceLineItems InvoiceLineItem[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId])
+  @@index([sku])
+  @@index([barcode])
+  @@index([organizationId, category])
+}
+
+model InventoryMovement {
+  id               String                @id @default(uuid())
+  inventoryItemId  String
+  type             InventoryMovementType
+  quantity         Int
+  previousQuantity Int
+  newQuantity      Int
+  cost             Decimal?              @db.Decimal(10, 2)
+  ticketId         String?
+  invoiceId        String?
+  notes            String?
+  performedById    String
+  createdAt        DateTime              @default(now())
+
+  // Relations
+  inventoryItem InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  ticket        Ticket?       @relation(fields: [ticketId], references: [id])
+  performedBy   User          @relation(fields: [performedById], references: [id])
+
+  @@index([inventoryItemId])
+  @@index([ticketId])
+}
+
+enum InventoryMovementType {
+  PURCHASE
+  SALE
+  ADJUSTMENT
+  RETURN
+}
+
+// ============================================
+// AI & WhatsApp
+// ============================================
+
+model AIInteraction {
+  id             String   @id @default(uuid())
+  organizationId String
+  ticketId       String?
+  type           AIInteractionType
+  prompt         String
+  response       String
+  model          String
+  inputTokens    Int
+  outputTokens   Int
+  cost           Decimal  @db.Decimal(10, 6)
+  durationMs     Int
+  createdAt      DateTime @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([ticketId])
+  @@index([type])
+}
+
+enum AIInteractionType {
+  DIAGNOSIS
+  ESTIMATE
+  REPLY
+  SUMMARIZE
+  CATEGORIZE
+}
+
+model WhatsAppConfig {
+  id                 String   @id @default(uuid())
+  organizationId     String   @unique
+  phoneNumberId      String
+  accessToken        String
+  webhookVerifyToken String
+  businessAccountId  String?
+  displayPhoneNumber String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// Notifications & Appointments
+// ============================================
+
+model Notification {
+  id             String           @id @default(uuid())
+  organizationId String
+  userId         String
+  type           NotificationType
+  title          String
+  body           String
+  link           String?
+  isRead         Boolean          @default(false)
+  readAt         DateTime?
+  createdAt      DateTime         @default(now())
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([userId, isRead])
+}
+
+enum NotificationType {
+  TICKET_CREATED
+  TICKET_ASSIGNED
+  TICKET_STATUS_CHANGED
+  TICKET_NOTE_ADDED
+  NEW_MESSAGE
+  PAYMENT_RECEIVED
+  LOW_STOCK
+}
+
+model Appointment {
+  id             String            @id @default(uuid())
+  organizationId String
+  customerId     String
+  ticketId       String?
+  type           AppointmentType
+  scheduledAt    DateTime
+  duration       Int               @default(30) // minutes
+  notes          String?
+  status         AppointmentStatus @default(SCHEDULED)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  // Relations
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer     Customer     @relation(fields: [customerId], references: [id])
+  ticket       Ticket?      @relation(fields: [ticketId], references: [id])
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([scheduledAt])
+}
+
+enum AppointmentType {
+  DROP_OFF
+  PICKUP
+  CONSULTATION
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
