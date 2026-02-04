@@ -1,0 +1,176 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String
+  role          Role      @default(CUSTOMER)
+  phone         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  repairRequests RepairRequest[]
+  shop           Shop?
+  reviews        Review[]
+}
+
+model Shop {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  address     String
+  city        String
+  state       String
+  zipCode     String
+  phone       String
+  email       String
+  latitude    Float?
+  longitude   Float?
+  rating      Float    @default(0)
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ownerId     String   @unique
+  owner       User     @relation(fields: [ownerId], references: [id])
+
+  specialties    ShopSpecialty[]
+  repairRequests RepairRequest[]
+  reviews        Review[]
+  technicians    Technician[]
+}
+
+model Technician {
+  id          String   @id @default(cuid())
+  name        String
+  email       String
+  phone       String?
+  specialties String[]
+  certifications String[]
+  createdAt   DateTime @default(now())
+
+  shopId      String
+  shop        Shop     @relation(fields: [shopId], references: [id])
+
+  assignedRepairs RepairRequest[]
+}
+
+model ShopSpecialty {
+  id       String @id @default(cuid())
+  category RepairCategory
+
+  shopId   String
+  shop     Shop   @relation(fields: [shopId], references: [id])
+
+  @@unique([shopId, category])
+}
+
+model RepairRequest {
+  id          String        @id @default(cuid())
+  title       String
+  description String
+  category    RepairCategory
+  status      RepairStatus  @default(PENDING)
+  urgency     Urgency       @default(NORMAL)
+
+  deviceType  String?
+  deviceBrand String?
+  deviceModel String?
+
+  images      String[]
+
+  aiDiagnosis    String?
+  aiConfidence   Float?
+  estimatedCost  Float?
+  actualCost     Float?
+
+  scheduledDate  DateTime?
+  completedDate  DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customerId  String
+  customer    User     @relation(fields: [customerId], references: [id])
+
+  shopId      String?
+  shop        Shop?    @relation(fields: [shopId], references: [id])
+
+  technicianId String?
+  technician   Technician? @relation(fields: [technicianId], references: [id])
+
+  messages    Message[]
+  review      Review?
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  content   String
+  isAI      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  repairRequestId String
+  repairRequest   RepairRequest @relation(fields: [repairRequestId], references: [id])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  customerId String
+  customer   User   @relation(fields: [customerId], references: [id])
+
+  shopId    String
+  shop      Shop   @relation(fields: [shopId], references: [id])
+
+  repairRequestId String @unique
+  repairRequest   RepairRequest @relation(fields: [repairRequestId], references: [id])
+}
+
+enum Role {
+  CUSTOMER
+  SHOP_OWNER
+  TECHNICIAN
+  ADMIN
+}
+
+enum RepairCategory {
+  SMARTPHONE
+  LAPTOP
+  TABLET
+  DESKTOP
+  TV
+  APPLIANCE
+  AUTOMOTIVE
+  HVAC
+  PLUMBING
+  ELECTRICAL
+  OTHER
+}
+
+enum RepairStatus {
+  PENDING
+  AI_DIAGNOSED
+  QUOTED
+  ACCEPTED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum Urgency {
+  LOW
+  NORMAL
+  HIGH
+  EMERGENCY
+}
